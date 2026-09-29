@@ -37,9 +37,10 @@ acceptance criterion, runs a self-review, and prints a final report.
 Install as a package to get the `autocoder` command:
 
 ```bash
-pip install -e .            # core
+pip install -e .            # core (zero third-party deps)
 pip install -e '.[dev]'     # + pytest
-pip install -e '.[anthropic,openai,web]'   # live providers + FastAPI extra
+pip install -e '.[anthropic,openai]'   # live LLM providers
+pip install -e '.[browser]'            # Playwright UI-testing agent
 ```
 
 ## Using a real LLM
@@ -131,11 +132,40 @@ provider gets, and deliberately ships one real bug on the first coding pass — 
 the OBSERVE → DEBUG → RE-TEST cycle is genuinely exercised on every run, not
 faked. Swap in a live provider and the same orchestration drives it.
 
+## Browser / UI testing (§21)
+
+With the `browser` extra installed, the tool layer exposes real Chromium
+automation (`browser_navigate`, `browser_click`, `browser_type`, `browser_text`,
+`browser_screenshot`, `browser_console_errors`) so the agent can verify *actual
+user workflows*, not just that files compile. The import is guarded — a bare
+install runs fine and the tools report unavailability instead of raising.
+`tests/test_browser.py` drives the shipped developer UI with a real headless
+browser and skips cleanly when the extra is absent.
+
+## Self-review feedback loop (§18)
+
+The reviewer doesn't just report — the orchestrator acts on findings in a
+bounded loop mirroring the debug loop: reported issues are fed back for a
+targeted fix, tests are re-run to prove the fix is sound, and the code is
+re-reviewed until it approves or no fixable issues remain. Suspected secrets are
+surfaced, never auto-patched.
+
+## Cost routing (§31)
+
+Structured extraction (requirement analysis) runs on `AUTOCODER_FAST_MODEL`;
+architecture, planning, coding, debugging and review run on
+`AUTOCODER_STRONG_MODEL`.
+
+## Milestone commits (§23)
+
+The orchestrator commits at each milestone (plan, each completed task, the
+self-review pass) with descriptive messages, in a workspace it git-initializes
+if needed. Secrets and `.env` are never committed.
+
 ## Limitations
 
 - The bundled offline demo targets a Python/stdlib REST API so it runs anywhere
-  with zero dependencies; richer stacks (React/FastAPI/Postgres, browser E2E via
-  Playwright) are driven by a live provider and the same tool layer.
-- Browser UI automation and container orchestration are represented by the tool
-  interfaces and health checks; wiring Playwright/Docker is an integration step
-  behind the existing `ToolRegistry`.
+  with zero dependencies; richer stacks (React/FastAPI/Postgres) are driven by a
+  live provider through the same orchestration and tool layer.
+- A dedicated database agent (migrations / seed / schema-inspect) is not yet its
+  own subsystem; DB work currently flows through the generic terminal/dev tools.

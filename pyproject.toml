@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.39"]
 openai = ["openai>=1.0"]
-web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+browser = ["playwright>=1.40"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.scripts]

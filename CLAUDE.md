@@ -20,7 +20,8 @@ debug → verify → iterate → complete. Work is "done" only with evidence
     control flow directly).
   - `tools/` — sandboxed, safety-classified, audited tool layer. `safety.py`
     holds command classification (SAFE / REQUIRES_CONFIRMATION / BLOCKED),
-    path-traversal protection, and secret redaction.
+    path-traversal protection, and secret redaction. `browser.py` is the
+    optional Playwright UI-testing agent (guarded import; `browser` extra).
   - `llm/` — provider abstraction. `mock_provider.py` is deterministic and
     offline; `factory.py` selects the provider from `Config`.
   - `ui/` — dependency-free stdlib web UI (SSE streaming).

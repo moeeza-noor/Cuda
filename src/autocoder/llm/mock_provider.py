@@ -382,15 +382,19 @@ class MockProvider(LLMProvider):
     def __init__(self, inject_bug: bool = True):
         self.inject_bug = inject_bug
         self._debug_done = False  # flips once a debug fix is requested
+        # Records (kind, model) for every call so tests can assert cost routing.
+        self.calls: list = []
 
     # -- public API ------------------------------------------------------- #
     def generate(self, prompt: str, *, system=None, model=None,
                  temperature=0.2, max_tokens=4096) -> str:
+        self.calls.append((self._kind(prompt), model))
         return json.dumps(self._route(prompt))
 
     def generate_structured(self, prompt: str, *, system=None, model=None,
                             schema_hint=None, temperature=0.1,
                             max_tokens=4096) -> Dict[str, Any]:
+        self.calls.append((self._kind(prompt), model))
         return self._route(prompt)
 
     # -- routing ---------------------------------------------------------- #
@@ -588,3 +592,7 @@ class MockProvider(LLMProvider):
             ),
             "approved": True,
         }
+
+    def _k_review_fix(self, prompt: str) -> Dict[str, Any]:
+        # The bundled scenario passes review cleanly, so there is nothing to fix.
+        return {"files": [], "commands": [], "note": "no changes required"}

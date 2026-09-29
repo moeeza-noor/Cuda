@@ -94,6 +94,7 @@ class Orchestrator:
             raise
         finally:
             self.tools.terminal.stop_all()
+            self.tools.browser.close()
             self.state_mgr.save()
         return self.final_report()
 
@@ -117,6 +118,25 @@ class Orchestrator:
         # Ensure the workspace is a git repo for change tracking (spec 23).
         if not (self.workspace / ".git").exists():
             self.tools.call("run_command", command="git init -q")
+        # Guarantee a commit identity so milestone commits don't fail in a
+        # fresh workspace (does not touch global git config).
+        ident = self.tools.call("run_command", command="git config user.email")
+        if not (ident.ok and ident.output.strip()):
+            self.tools.call("run_command",
+                            command='git config user.email "agent@autocoder.local"')
+            self.tools.call("run_command",
+                            command='git config user.name "autocoder"')
+        # Keep the agent's own state and common build/cache artifacts out of the
+        # user's repo so milestone commits stay clean.
+        gi = self.tools.call("read_file", path=".gitignore")
+        existing = gi.output if gi.ok else ""
+        wanted = [".autocoder/", "__pycache__/", "*.pyc", ".pytest_cache/",
+                  ".env", "node_modules/"]
+        missing = [w for w in wanted if w not in existing]
+        if missing:
+            body = (existing.rstrip() + "\n" if existing.strip() else "")
+            self.tools.call("write_file", path=".gitignore",
+                            content=body + "\n".join(missing) + "\n")
 
     def _phase_plan(self) -> None:
         self.state_mgr.set_phase(AgentState.PLANNING)
@@ -134,6 +154,7 @@ class Orchestrator:
         self.memory.remember("tech_stack", stack)
         self.memory.remember("architecture", arch)
         self.state_mgr.save()
+        self._commit(f"docs: plan {len(tasks)} tasks and architecture")
 
     def _phase_implement(self) -> None:
         self.state_mgr.set_phase(AgentState.IMPLEMENTING)
@@ -146,7 +167,9 @@ class Orchestrator:
             self.state_mgr.save()
             success = self._execute_task(task)
             self.state_mgr.record_task_result(task, success)
-            if not success:
+            if success:
+                self._commit(f"feat: {task.title.lower()}")
+            else:
                 self.log.emit("orchestrator", "task failed", "failure",
                               task_id=task.id, detail=task.title)
                 # Continue with remaining independent tasks; report at the end.
@@ -232,9 +255,53 @@ class Orchestrator:
         return True
 
     def _phase_review(self) -> None:
+        """Review, then act on findings in a bounded loop (spec section 18).
+
+        Mirrors the debug loop: reported code issues are fed back to the reviewer
+        for a targeted fix, tests are re-run to prove the fix is sound, and the
+        code is re-reviewed. The loop stops when the review approves, when there
+        are no fixable issues left, or when the iteration bound is reached.
+        Security-secret findings are surfaced rather than auto-patched.
+        """
         self.state_mgr.set_phase(AgentState.REVIEWING)
         review = self.reviewer.review(self.tools, self.state_mgr.state.architecture)
+        for it in range(1, self.config.max_debug_iterations + 1):
+            issues = review.get("issues", [])
+            if review.get("approved") or not issues:
+                break
+            applied = self.reviewer.apply_fixes(issues, self.tools)
+            if not applied:
+                break  # nothing actionable was changed; avoid a no-op loop
+            report = self.tester.run(self.tools)
+            self.state_mgr.state.test_results.append(report.to_dict())
+            if not report.passed:
+                # A review fix that breaks tests is worse than the finding;
+                # hand it to the debug loop and stop the review loop.
+                self._debug_loop_from_report(report)
+                break
+            self.log.emit("orchestrator", "review fix verified", "success",
+                          detail=f"iteration {it}")
+            review = self.reviewer.review(self.tools,
+                                          self.state_mgr.state.architecture)
         self.memory.remember("review", review)
+        self._commit("chore: self-review pass")
+
+    def _debug_loop_from_report(self, report) -> bool:
+        """Run the debug loop against the current head using a synthetic task."""
+        from ..models import Task
+
+        synth = Task(title="review-fix regression",
+                     files=[c.path for c in self.state_mgr.state.file_changes][-5:])
+        return self._debug_loop(synth, report)
+
+    def _commit(self, message: str) -> None:
+        """Commit progress at a milestone if there is anything to commit (spec 23)."""
+        status = self.tools.call("git_status")
+        if not status.ok or not status.output.strip().splitlines()[1:]:
+            return  # only the branch header line -> nothing staged/unstaged
+        res = self.tools.call("git_commit", message=message)
+        self.log.emit("orchestrator", "git commit",
+                      "success" if res.ok else "failure", detail=message)
 
     # -- reporting -------------------------------------------------------- #
     def final_report(self) -> Dict[str, Any]:

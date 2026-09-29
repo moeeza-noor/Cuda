@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..config import Config
 from ..models import ToolResult
+from .browser import BrowserTools
 from .dev import DevTools
 from .filesystem import FileSystemTools
 from .git_tools import GitTools
@@ -33,6 +34,7 @@ class ToolRegistry:
         self.dev = DevTools(self.terminal)
         self.git = GitTools(self.terminal, ws)
         self.inspect = InspectionTools()
+        self.browser = BrowserTools()
         self._audit = audit
         self._tools: Dict[str, Callable[..., ToolResult]] = {
             # filesystem
@@ -64,6 +66,13 @@ class ToolRegistry:
             "check_port": self.inspect.check_port,
             "health_check": self.inspect.health_check,
             "read_logs": self.inspect.read_logs,
+            # browser / UI (optional; requires the `browser` extra)
+            "browser_navigate": self.browser.navigate,
+            "browser_click": self.browser.click,
+            "browser_type": self.browser.type_text,
+            "browser_text": self.browser.text_content,
+            "browser_screenshot": self.browser.screenshot,
+            "browser_console_errors": self.browser.console_errors,
         }
 
     def names(self) -> List[str]:

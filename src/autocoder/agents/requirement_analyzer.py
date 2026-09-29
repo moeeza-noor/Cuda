@@ -25,10 +25,14 @@ class RequirementAnalyzer(BaseAgent):
 
     def analyze(self, requirement: str) -> RequirementSpec:
         self.log.emit(self.name, "analyze requirement", "running")
+        # Cost routing (spec section 31): requirement analysis is structured
+        # extraction/summarization, so it runs on the cheaper/faster model.
+        # Architecture, planning, coding, debugging and review keep the strong
+        # model.
         data = self._structured(
             f"Requirement:\n{requirement}",
             kind="requirement_analysis",
-            model=self.config.strong_model,
+            model=self.config.fast_model,
             system=_SYSTEM,
             schema_hint=_SCHEMA,
         )
