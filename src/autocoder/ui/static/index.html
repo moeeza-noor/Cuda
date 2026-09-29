@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Autonomous Coding Agent</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3;
+    --muted:#8b949e; --accent:#2f81f7; --ok:#3fb950; --bad:#f85149;
+    --run:#d29922; --mono:'SFMono-Regular',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;
+       background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column}
+  header{padding:10px 16px;border-bottom:1px solid var(--border);
+         background:var(--panel);display:flex;align-items:center;gap:12px}
+  header h1{font-size:15px;margin:0;font-weight:600}
+  header .badge{font-size:11px;color:var(--muted);border:1px solid var(--border);
+         border-radius:10px;padding:2px 8px}
+  .cols{flex:1;display:grid;grid-template-columns:240px 1fr 300px;min-height:0}
+  .panel{border-right:1px solid var(--border);overflow:auto;padding:12px}
+  .panel:last-child{border-right:none}
+  .panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--muted);margin:0 0 8px}
+  .ev{font-family:var(--mono);font-size:12px;padding:3px 0;border-bottom:1px solid #1e242c;
+      display:flex;gap:8px;align-items:baseline}
+  .ev .ic{width:12px;flex:0 0 12px}
+  .ev .ag{color:var(--accent);flex:0 0 auto}
+  .ev.success .ic{color:var(--ok)} .ev.failure .ic{color:var(--bad)}
+  .ev.running .ic{color:var(--run)} .ev .dt{color:var(--muted)}
+  .task{font-size:13px}
+  .task .t{font-weight:600;margin-bottom:4px}
+  .task .crit{font-size:12px;color:var(--muted);padding:2px 0}
+  .status{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px}
+  .status.running{background:#3a2d0c;color:var(--run)}
+  .status.done{background:#0f2f18;color:var(--ok)}
+  .status.idle{background:#1c2128;color:var(--muted)}
+  #term{background:#010409;border-top:1px solid var(--border);height:180px;
+        overflow:auto;padding:10px;font-family:var(--mono);font-size:12px;color:#c9d1d9}
+  #term div{white-space:pre-wrap;line-height:1.4}
+  .composer{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--border);
+        background:var(--panel)}
+  .composer input{flex:1;background:#010409;border:1px solid var(--border);color:var(--fg);
+        border-radius:6px;padding:8px 10px;font-size:13px}
+  .composer button{background:var(--accent);border:none;color:#fff;border-radius:6px;
+        padding:8px 16px;font-weight:600;cursor:pointer}
+  .composer button:disabled{opacity:.5;cursor:not-allowed}
+  .kv{font-size:12px;color:var(--muted);margin:2px 0}
+  .kv b{color:var(--fg);font-weight:600}
+  code{color:#79c0ff}
+</style>
+</head>
+<body>
+<header>
+  <h1>⟠ Autonomous Coding Agent</h1>
+  <span class="badge" id="phase">IDLE</span>
+  <span class="badge" id="conn">● connecting</span>
+</header>
+
+<div class="cols">
+  <section class="panel" id="project">
+    <h2>Project</h2>
+    <div class="kv"><b>Workspace</b></div>
+    <div class="kv" id="ws">—</div>
+    <h2 style="margin-top:16px">Tech stack</h2>
+    <div id="stack" class="kv">—</div>
+    <h2 style="margin-top:16px">Files touched</h2>
+    <div id="files" class="kv">—</div>
+  </section>
+
+  <section class="panel" id="activity">
+    <h2>Agent activity</h2>
+    <div id="events"></div>
+  </section>
+
+  <section class="panel" id="taskpanel">
+    <h2>Current task</h2>
+    <div class="task">
+      <div class="t" id="task-title">No task</div>
+      <div id="task-status"><span class="status idle">idle</span></div>
+      <h2 style="margin-top:16px">Acceptance criteria</h2>
+      <div id="criteria" class="crit">—</div>
+    </div>
+  </section>
+</div>
+
+<div id="term"></div>
+
+<div class="composer">
+  <input id="req" placeholder="Describe what you want to build… e.g. Build a task REST API with auth" />
+  <button id="go">Build ▸</button>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const evBox = $('#events'), term = $('#term');
+const icons = {success:'✓', failure:'✗', running:'⟳', info:'•'};
+let lastTask = null;
+
+function addEvent(e){
+  const row = document.createElement('div');
+  row.className = 'ev ' + (e.result||'info');
+  row.innerHTML = `<span class="ic">${icons[e.result]||'•'}</span>`+
+    `<span class="ag">${e.agent||''}</span>`+
+    `<span class="ac">${e.action||''}</span>`+
+    `<span class="dt">${e.detail||e.file||''}</span>`;
+  evBox.appendChild(row);
+  evBox.scrollTop = evBox.scrollHeight;
+
+  if(e.agent==='tool' || e.action?.includes('test') || e.result==='failure'){
+    const t = document.createElement('div');
+    t.textContent = `$ [${e.agent}] ${e.action} ${e.detail||e.file||''}`;
+    term.appendChild(t); term.scrollTop = term.scrollHeight;
+  }
+  if(e.phase) $('#phase').textContent = e.phase;
+  if(e.action==='create plan') $('#phase').textContent='PLANNING';
+  if(e.task_id && e.detail && e.agent==='coding_agent'){
+    $('#task-title').textContent = e.detail;
+    $('#task-status').innerHTML = '<span class="status running">running</span>';
+  }
+  if(e.action==='final report ready' || e.action==='review complete'){
+    refreshState();
+  }
+}
+
+function connect(){
+  const es = new EventSource('/api/events');
+  es.onopen = ()=>{ $('#conn').textContent='● live'; $('#conn').style.color='var(--ok)'; };
+  es.onerror = ()=>{ $('#conn').textContent='● reconnecting'; $('#conn').style.color='var(--bad)'; };
+  es.onmessage = ev => { try{ addEvent(JSON.parse(ev.data)); }catch(_){} };
+}
+
+async function refreshState(){
+  const r = await fetch('/api/state'); const s = await r.json();
+  $('#go').disabled = s.running;
+  if(s.report){
+    const rep = s.report;
+    $('#phase').textContent = rep.status;
+    $('#stack').innerHTML = Object.entries(rep.technology||{})
+      .filter(([k])=>k!=='reasoning')
+      .map(([k,v])=>`<b>${k}</b>: ${v}`).join('<br>') || '—';
+    $('#files').innerHTML = (rep.files||[]).map(f=>`<code>${f}</code>`).join('<br>') || '—';
+    const acc = rep.acceptance||{detail:{}};
+    $('#criteria').innerHTML = Object.entries(acc.detail||{})
+      .map(([c,ok])=>`[${ok?'x':' '}] ${c}`).join('<br>') || '—';
+    $('#task-status').innerHTML = `<span class="status done">${rep.status}</span>`;
+    $('#task-title').textContent =
+      `${rep.tasks_completed} tasks done · tests: ${(rep.tests||{}).summary||'n/a'}`;
+  }
+}
+
+$('#go').onclick = async ()=>{
+  const requirement = $('#req').value.trim();
+  if(!requirement) return;
+  $('#go').disabled = true;
+  evBox.innerHTML=''; term.innerHTML='';
+  await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({requirement})});
+};
+$('#req').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#go').click(); });
+
+fetch('/api/state').then(r=>r.json()).then(s=>{
+  $('#ws').textContent = (s.report&&s.report.project) || 'ready';
+});
+connect(); refreshState();
+</script>
+</body>
+</html>
